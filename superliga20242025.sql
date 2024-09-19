@@ -1,5 +1,3 @@
-use SuperligaDB
-go
 drop table if exists matches
 drop table if exists teams
 go
@@ -37,7 +35,7 @@ go
 --
 -- Indsæt triggere her
 
--- Insert trigger
+-- Insert trigger (Delopgave 1)
 create trigger InsertMatch
 on matches
 after insert
@@ -75,7 +73,7 @@ begin
 end
 go
 
--- Delete trigger
+-- Delete trigger (Delopgave 2)
 create trigger DeleteMatch
 on matches
 after delete
@@ -113,7 +111,7 @@ begin
 end
 go
 
--- Update trigger
+-- Update trigger (Delopgave 3)
 create trigger UpdateMatch
 on matches
 instead of update
@@ -173,18 +171,95 @@ insert into matches values('rfc','aab',1,0,'2024-9-1')
 --
 go
 
--- Select statement til at se stillingen
-select name, nomatches, ourgoals, othergoals, points
-from teams
-order by points desc, ourgoals - othergoals desc, ourgoals desc
-go
-
--- Stored procedure til at se stillingen på en given dato
+-- Stored procedure til at se stillingen på en given dato (Delopgave 4)
 drop proc if exists StandingOnDate
 go
 
 create proc StandingOnDate
 @date date
+as
+begin
+
+declare @StandingOnDate table
+(
+Id char(3) primary key,
+name varchar(40),
+nomatches int,
+ourgoals int,
+othergoals int,
+points int
+)
+
+insert into @StandingOnDate values('agf','AGF',0,0,0,0)
+insert into @StandingOnDate values('fck','FC København',0,0,0,0)
+insert into @StandingOnDate values('rfc','Randers FC',0,0,0,0)
+insert into @StandingOnDate values('vib','Viborg',0,0,0,0)
+insert into @StandingOnDate values('lyn','Lyngby',0,0,0,0)
+insert into @StandingOnDate values('sje','Sønderjyske',0,0,0,0)
+insert into @StandingOnDate values('fcm','FC Midtjylland',0,0,0,0)
+insert into @StandingOnDate values('bif','Brøndby IF',0,0,0,0)
+insert into @StandingOnDate values('fcn','FC Nordsjælland',0,0,0,0)
+insert into @StandingOnDate values('vej','Vejle',0,0,0,0)
+insert into @StandingOnDate values('sil','Silkeborg',0,0,0,0)
+insert into @StandingOnDate values('aab','Aab',0,0,0,0)
+
+
+declare p cursor
+for select homeid, outid, homegoal, outgoal
+from matches
+where matchdate <= @date
+declare @homeid char(3), @outid char(3), @homegoal int, @outgoal int
+open p
+fetch p into @homeid, @outid, @homegoal, @outgoal
+while @@fetch_status != -1
+begin
+  update @StandingOnDate
+  set nomatches = nomatches + 1,
+  ourgoals = ourgoals + @homegoal,
+  othergoals = othergoals + @outgoal
+  where id = @homeid
+  update @StandingOnDate
+  set nomatches = nomatches + 1,
+  ourgoals = ourgoals + @outgoal,
+  othergoals = othergoals + @homegoal
+  where id = @outid
+  if @homegoal > @outgoal
+	update @StandingOnDate
+	set points = points + 3
+	where id = @homeid
+else if @outgoal > @homegoal
+	update @StandingOnDate
+	set points = points + 3
+	where id = @outid
+else
+begin
+	update @StandingOnDate
+	set points = points + 1
+	where id = @homeid
+	update @StandingOnDate
+	set points = points + 1
+	where id = @outid
+end
+  fetch p into @homeid, @outid, @homegoal, @outgoal
+end
+close p
+deallocate p
+
+select *
+from @StandingOnDate
+order by points desc, ourgoals - othergoals desc, ourgoals desc
+
+end
+go
+
+-- Stored procedure til at printe føreren af ligaen for hver dag, der har været kamp
+-- Dette er en hjælpemetode til PrintLeadersOfAllDays (Delopgave 5)
+drop proc if exists PrintLeaderOfTheDay
+go
+
+create proc PrintLeaderOfTheDay
+@date date,
+@leader varchar(40) output
 as
 begin
 
@@ -252,18 +327,17 @@ end
 close p
 deallocate p
 
-select *
+select top 1 @leader = name
 from @StandingOnDate
 order by points desc, ourgoals - othergoals desc, ourgoals desc
 
 end
+
+-- Stored procedure til at printe føreren af ligaen for alle dage, hvor der har været kamp
+drop proc if exists PrintLeadersOfAllDays
 go
 
--- Stored procedure til at printe føreren af ligaen for hver dag, der har været kamp
-drop proc if exists PrintLeaderOfTheDay
-go
-
-create proc PrintLeaderOfTheDay
+create proc PrintLeadersOfAllDays
 as
 begin
 
@@ -274,7 +348,7 @@ open f
 fetch f into @matchdate
 while @@fetch_status != -1
 begin
-  execute @leader = StandingOnDate @matchdate
+  execute PrintLeaderOfTheDay @leader = @leader output, @date = @matchdate
 
   print 'On date ' + convert(varchar(20),@matchdate) + ' the leader is ' + @leader
   fetch f into @matchdate
@@ -285,17 +359,36 @@ deallocate f
 end
 go
 
-execute PrintLeaderOfTheDay
+-- Select statement til at se stillingen
+select name, nomatches, ourgoals, othergoals, points
+from teams
+order by points desc, ourgoals - othergoals desc, ourgoals desc
+go
 
-execute StandingOnDate '2024-7-19'
---delete from matches where matchdate = '2024-8-31' and homeid = 'agf'
+-- Executer en stored procedure, der returnerer stillingen på den givne dag
+execute StandingOnDate '2024-7-22'
+go
 
-/*
-update matches
-set homegoal = 2,
-outgoal = 4
-where matchdate = '2024-8-31' and homeid = 'agf'
-*/
+-- Executer en stored procedure, der for hver kampdag udskiver dagen og det førende hold
+-- Har brugt nocount for at slippe for 100 linjer (x rows affected) mellem udskrifterne
+set nocount on
+execute PrintLeadersOfAllDays
+go
 
---select * from matches
---order by matchdate desc
+-----------------------------------------------------------------------------------------
+-- Udkommenterede kald til at checke delete og update triggers
+-- Kør select statementet et par kald længere oppe for at se efter i stillingen
+
+-- Til delete trigger
+--  delete from matches where matchdate = '2024-8-31' and homeid = 'agf'
+-- Her burde der i den nye stilling stå
+-- Holdnavn   Kampe   Mål   Andres mål   Point
+-- AGF        6       17    5            13
+-- FCN        6       11    9            11
+
+-- Til update trigger
+--  update matches set homegoal = 2, outgoal = 4 where matchdate = '2024-8-31' and homeid = 'agf'
+-- Her burde der i den nye stilling stå
+-- Holdnavn   Kampe   Mål   Andres mål   Point
+-- AGF        7       19    9            13
+-- FCN        7       15    11           14
